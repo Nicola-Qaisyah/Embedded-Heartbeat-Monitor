@@ -21,7 +21,7 @@ The project combines C and Assembly programming with circuit design and simulati
 
 The circuit was designed and simulated using Proteus.
 
-![Circuit Design](CircuitDesignProteus/CircuitDesign.png)
+![Circuit Design](Circuit_Design_Proteus/CircuitDesign.png)
 
 ## Key Features
 
