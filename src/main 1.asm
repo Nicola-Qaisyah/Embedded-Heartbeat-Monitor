@@ -1,0 +1,421 @@
+#include p16f877a.inc
+; Define registers
+ 	CBLOCK 0x20
+	DCounter1
+	DCounter2
+	TEMP
+	VAR1
+	VAR2
+	VAR3
+    BEAT_VALUE        ; Register to hold the 3-digit beat value
+    DIGIT1            ; Ones place
+    DIGIT2            ; Tens place
+    DIGIT3            ; Hundreds place
+    CURRENT_DIGIT     ; Keeps track of the current digit being displayed
+	ADC_R1
+	ADC_R2
+	ADC_FLAG
+	ADC_TMP
+	Mid_Value
+	TMR_COUNTER
+	AGE_GROUP
+	REG_H
+	REG_L
+	DIV
+	RMD
+	COUNT
+	temp
+	temp2
+	ENDC
+
+org 0x00
+	goto main
+org 0x04
+	goto ISR
+
+main
+	;initialization	
+	BANKSEL TRISD	
+	CLRF TRISD
+	CLRF TRISC
+	BSF TRISC, 0	
+	MOVLW B'00000001'
+	MOVWF TRISB
+	BANKSEL BEAT_VALUE
+	CLRF BEAT_VALUE          
+    CLRF RMD
+    CLRF REG_H             
+    CLRF REG_L
+
+	MOVLW 0X1D
+	MOVWF REG_H
+	MOVLW 0X4C
+	MOVWF REG_L  ;REG_H,REG_L together make 7500
+	MOVLW D'16'
+	MOVWF COUNT 
+	;configuration of timer 1
+	BANKSEL T1CON
+	MOVLW B'00111010' ;PRESCALING BY 8 and 
+	;external oscillator is enabled
+	;ON AN EXTERNAL CLOCK OF 1KHZ
+	MOVWF T1CON
+	
+;	BANKSEL PORTC
+	CLRF PORTC     ; Turn off all digits initially this is for multiplexing
+    CLRF PORTD
+	CLRF DIGIT1
+    CLRF DIGIT2
+    CLRF DIGIT3
+    CLRF CURRENT_DIGIT  
+	
+	CLRF ADC_FLAG ;SET AS FALSE
+	
+;	BANKSEL ADCON0
+	BSF ADCON0, ADON ;A/D IS ON	but not taking samples
+	BANKSEL ADCON1
+	BSF ADCON1,ADFM ;RIGHT JUSTIFIED
+	bsf INTCON, GIE ;Enables all interrupts
+	bsf INTCON, PEIE ;Enables peripheral interrupts
+	bsf INTCON, RBIE ;Enables the RB port change interrupt
+	bcf INTCON, RBIF 
+		
+;	BANKSEL PIE1
+	BSF PIE1, ADIE  ;Enables the A/D interrupt
+	BANKSEL PIR1
+	BCF PIR1, TMR1IF
+	BCF PIR1, ADIF 
+	
+;	BSF ADCON0, GO ;start taking samples
+	
+finish
+	BANKSEL PORTD
+	MOVLW D'60'
+	SUBWF BEAT_VALUE, W
+	BTFSS STATUS, C
+	GOTO BRADY
+	
+	;CHECK AGE_GROUP
+	MOVF AGE_GROUP, F
+	BTFSC STATUS, Z
+	GOTO CHILD
+	MOVLW D'2'
+	SUBWF AGE_GROUP, W
+	BTFSC STATUS, Z
+	GOTO SENIOR
+
+ADULT
+	MOVLW D'181'
+	SUBWF BEAT_VALUE, W
+	BTFSC STATUS, C
+	GOTO BUZZER
+	
+	MOVLW D'100'
+	SUBWF BEAT_VALUE, W
+	BTFSC STATUS, C
+	GOTO TACHY
+	
+	GOTO NORMAL
+
+CHILD	
+
+	MOVLW D'80'        ;CKECKING FOR Bradycardia
+	SUBWF BEAT_VALUE, W
+	BTFSS STATUS, C
+	GOTO BRADY
+
+	MOVLW D'201'
+	SUBWF BEAT_VALUE, W
+	BTFSC STATUS, C
+	GOTO BUZZER ;TURN ON THE BUZZER
+	
+	MOVLW D'120'  ;CHECKING FOR Tachycardia
+	SUBWF BEAT_VALUE, W
+	BTFSC STATUS, C
+	GOTO TACHY
+	GOTO NORMAL
+		
+SENIOR			
+
+	MOVLW D'141'
+	SUBWF BEAT_VALUE, W
+	BTFSC STATUS, C
+	GOTO BUZZER
+	
+	MOVLW D'100'
+	SUBWF BEAT_VALUE, W
+	BTFSC STATUS, C
+	GOTO TACHY
+	
+	GOTO NORMAL
+;Display Values on 7 SEG --MULTIPLEXING HERE
+BRADY
+	BANKSEL PORTD
+	BCF PORTD, RD6
+	BCF PORTD, RD7
+	BSF PORTD, RD5
+	BCF PORTB, RB1
+	GOTO DISPLAY
+NORMAL
+	BANKSEL PORTD
+	BSF PORTD, RD6
+	BCF PORTD, RD7
+	BCF PORTD, RD5
+	BCF PORTB, RB1
+	GOTO DISPLAY
+TACHY
+	BANKSEL PORTD
+	BCF PORTD, RD6
+	BSF PORTD, RD7
+	BCF PORTD, RD5
+	BCF PORTB, RB1
+	GOTO DISPLAY
+BUZZER ;DANGER ZONE
+	BANKSEL PORTB
+	BCF PORTD, RD6
+	BSF PORTD, RD7
+	BCF PORTD, RD5
+	BSF PORTB, RB1
+
+DISPLAY ;DISPLAYING CODE USING MULTIPLEXING
+    MOVF BEAT_VALUE, W         
+   	GOTO DIVIDE100 ;REPLACED CALL WITH GOTO
+   	here100
+	MOVF VAR1,W
+	SUBLW D'9'
+	MOVWF DIGIT1
+	MOVLW D'100'
+	ADDWF TEMP,F
+       
+    goto DIVIDE10
+    here10
+	MOVF VAR2,W
+	SUBLW D'9'
+	MOVWF DIGIT2
+	MOVLW D'10'
+	ADDWF TEMP,F
+	        
+    goto DIVIDE1
+    here1
+	MOVF VAR3,W
+	SUBLW D'9'
+	MOVWF DIGIT3
+	
+DISPLAY_DIGIT
+	
+	BANKSEL PORTD
+	BSF PORTD,RD0
+	BCF PORTD,RD1
+	BCF PORTD,RD2
+	BCF PORTD,RD3
+	
+	MOVF DIGIT1,W
+	CALL TABLE
+	MOVWF PORTC
+	CALL DELAY
+	
+	BCF PORTD,RD0
+	BSF PORTD,RD1
+	BCF PORTD,RD2
+	BCF PORTD,RD3
+
+	MOVF DIGIT2,W
+	CALL TABLE
+	MOVWF PORTC
+	CALL DELAY
+	
+	BCF PORTD,RD0
+	BCF PORTD,RD1
+	BSF PORTD,RD2
+	BCF PORTD,RD3
+	
+	MOVF DIGIT3,W
+	CALL TABLE
+	MOVWF PORTC
+	CALL DELAY
+	
+	BCF PORTD,RD0
+	BCF PORTD,RD1
+	BCF PORTD,RD2
+	BSF PORTD,RD3	
+	MOVF AGE_GROUP,W
+	CALL TABLE2
+	MOVWF PORTC
+	CALL DELAY			
+	
+	BSF ADCON0, GO ;start taking samples
+	GOTO finish
+;	goto finish
+
+; Segment display patterns (common cathode)
+TABLE	
+	ADDWF PCL,F
+	RETLW B'01111111';'0'
+	RETLW B'00001101';'1'
+	RETLW B'10110111';'2'
+	RETLW B'10011111';'3'
+	RETLW B'11001101';'4'
+	RETLW B'11011011';'5'
+	RETLW B'11111011' ;'6'
+	RETLW B'00001111';'7'
+	RETLW B'11111111';'8'
+	RETLW B'11011111';'9'
+	
+TABLE2
+	ADDWF PCL,F
+	RETLW B'01110011' ;C
+	RETLW B'11101111' ;A
+	RETLW B'10110111' ;S
+
+ISR
+;context saving
+	movwf temp
+	swapf STATUS,W
+	MOVWF temp2
+
+resume
+;polling
+	btfsc INTCON, INTF ;check if age changing button is pressed
+	GOTO PushButton 
+	btfsc PIR1, ADIF ;check if sample conversion is done
+	GOTO ADC_INT
+done	
+;context retrieval
+	SWAPF temp2,W
+	MOVWF STATUS
+	MOVF temp,W	
+	retfie
+
+PushButton ;FINISHED
+	incf AGE_GROUP,F ;Change Age_Group State
+	movlw d'3'
+	subwf AGE_GROUP,W
+	btfsc STATUS,Z   ;Test if Age_Group>2
+	clrf AGE_GROUP	 ;clear Age_Group	
+
+	BANKSEL INTCON
+	BCF INTCON, INTF
+	GOTO resume
+			
+ADC_INT	 	
+	BANKSEL ADRESH
+	MOVF ADRESH, W
+	MOVWF ADC_TMP ;previous sample value
+	
+	SUBLW D'2'
+	BTFSC STATUS,C ;C 
+	GOTO TAKE_SAMPLE ;go here if no pulse 
+	MOVF ADC_FLAG,F
+	BTFSC STATUS,Z
+	GOTO TIMER1
+
+TAKE_SAMPLE
+	MOVLW D'2'
+	SUBWF ADC_TMP,W
+	BTFSC STATUS,C
+	CLRF ADC_FLAG
+	banksel PIR1
+	bcf PIR1, ADIF		
+	BANKSEL ADCON0
+	BSF ADCON0, GO;START TO TAKE ANOTHER SAMPLE
+
+	goto resume
+
+
+TIMER1 ;ADC Timer will start counting time
+	INCF TMR_COUNTER
+	MOVLW D'2'
+	SUBWF TMR_COUNTER,W
+	BTFSC STATUS,Z
+	GOTO CALCULATE
+	BSF ADC_FLAG,0
+	BANKSEL T1CON
+	BSF T1CON, TMR1ON ;Enables Timer1
+	BSF ADCON0, GO ;
+	goto resume
+
+;TO HERE 
+CALCULATE
+
+	BCF T1CON, TMR1ON ;STOP THE TIMER
+	CLRF ADC_FLAG
+	CLRF TMR_COUNTER
+	BANKSEL TMR1L
+	MOVF TMR1L,W
+	MOVWF DIV 
+	
+	DIVIDE_LOOP
+    ; Left shift dividend (REG_H:REG_L << 1)
+    RLF     REG_L, F        
+    RLF     REG_H, F        
+    RLF     RMD, F          
+
+    ; Compare divisor with remainder
+    MOVF    DIV, W
+    SUBWF   RMD, W          ; W = RMD - DIV
+    BTFSS   STATUS, C       ; Check if RMD >= DIV
+    GOTO    SKIP_SUB        ; If not, skip subtraction
+
+    ;
+    MOVWF   RMD             
+	BSF STATUS,0
+	RLF BEAT_VALUE       
+    GOTO CONTINUE        
+
+SKIP_SUB
+    RLF BEAT_VALUE,F
+CONTINUE
+	DECFSZ COUNT,F
+	GOTO DIVIDE_LOOP
+	
+;	CLRF TMR1L
+	GOTO resume
+
+DIVIDE100:
+
+	MOVWF TEMP
+	MOVLW D'9'
+	MOVWF VAR1
+	MOVLW D'100'
+LOOP_100
+	
+	SUBWF TEMP,F
+	BTFSS STATUS, C
+	goto here100 
+	DECFSZ VAR1 ,F
+	GOTO LOOP_100
+ 
+DIVIDE10:
+
+	
+	MOVLW D'9'
+	MOVWF VAR2
+	MOVLW D'10'
+LOOP_10
+	SUBWF TEMP,F
+	BTFSS STATUS, C
+	goto here10
+	DECFSZ VAR2 ,F
+	GOTO LOOP_10
+
+DIVIDE1:
+	MOVLW D'9'
+	MOVWF VAR3
+	MOVLW D'1'
+LOOP_1
+	SUBWF TEMP,F
+	BTFSS STATUS, C
+	goto here1
+	DECFSZ VAR3 ,F
+	GOTO LOOP_1
+DELAY              ;10ms delay for multiplexing
+	MOVLW 0Xf7
+	MOVWF DCounter1
+	MOVLW 0X1a
+	MOVWF DCounter2
+LOOP
+	DECFSZ DCounter1, 1
+	GOTO LOOP
+	DECFSZ DCounter2, 1
+	GOTO LOOP
+	RETURN	
+END
